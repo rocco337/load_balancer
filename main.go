@@ -1,24 +1,16 @@
 package main
 
 import (
-	"container/ring"
+	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"time"
 )
 
-var (
-	nodesList *ring.Ring
-)
-
 func main() {
 
 	nodes := []string{"localhost:8082", "localhost:8081"}
-	nodesList = ring.New(len(nodes))
-	for i := 0; i < nodesList.Len(); i++ {
-		nodesList.Value = nodes[i]
-		nodesList = nodesList.Next()
-	}
+	new(RoundRobinStrategy).Instance().Init(nodes)
 
 	//open proxy server that forwards request to one of active nodes
 	server := &http.Server{
@@ -36,19 +28,13 @@ func main() {
 }
 
 func handler(writer http.ResponseWriter, req *http.Request) {
+	nextNode := new(RoundRobinStrategy).Instance().Next()
 	proxy := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
-			req.URL.Host = nextNode()
+			req.URL.Host = nextNode
 			req.URL.Scheme = "http"
 		},
 	}
-
+	fmt.Println("Forwarding request to: " + nextNode)
 	proxy.ServeHTTP(writer, req)
-}
-
-func nextNode() string {
-	nextValue := nodesList.Value.(string)
-	nodesList = nodesList.Next()
-
-	return nextValue
 }
