@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+
 	"net/http/httputil"
 	"time"
 )
@@ -14,14 +15,19 @@ func init() {
 	flag.IntVar(&serverPort, "p", 8090, "default loadbalancer port")
 }
 
+var proxyConnections map[string]*httputil.ReverseProxy
+
 //auto discovery
 //configuration - port, autodiscovery
 //server health - remove from list if unhealthy
 func main() {
+	proxyConnections = make(map[string]*httputil.ReverseProxy, 0)
+
 	flag.Parse()
 
 	nodes := []string{"localhost:8082", "localhost:8081"}
 	new(RoundRobinStrategy).Instance().Init(nodes)
+	warmUpConnections(nodes)
 
 	fmt.Println("Starting loadbalancer...")
 	fmt.Printf("Listening to port %v \n", serverPort)
@@ -41,14 +47,22 @@ func main() {
 	}
 }
 
+func warmUpConnections(nodes []string) {
+	for _, node := range nodes {
+		proxy := &httputil.ReverseProxy{
+			Director: func(req *http.Request) {
+				req.URL.Host = node
+				req.URL.Scheme = "http"
+			},
+		}
+
+		proxyConnections[node] = proxy
+	}
+}
+
 func handler(writer http.ResponseWriter, req *http.Request) {
 	nextNode := new(RoundRobinStrategy).Instance().Next()
-	proxy := &httputil.ReverseProxy{
-		Director: func(req *http.Request) {
-			req.URL.Host = nextNode
-			req.URL.Scheme = "http"
-		},
-	}
 	fmt.Println("Forwarding request to: " + nextNode)
-	proxy.ServeHTTP(writer, req)
+
+	proxyConnections[nextNode].ServeHTTP(writer, req)
 }
