@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -10,9 +11,15 @@ import (
 )
 
 var serverPort int
+var balancingStrategy string
+var sessionIDCookieName = "SessionId"
+
+const roundRobinBalancingStrategy = "round-robin"
+const stickySessionBalancingStrategy = "sticky-session"
 
 func init() {
 	flag.IntVar(&serverPort, "p", 8090, "default loadbalancer port")
+	flag.StringVar(&balancingStrategy, "s", "round-robin", "balancing stragey: round-robin, sticky-session")
 }
 
 var proxyConnections map[string]*httputil.ReverseProxy
@@ -31,6 +38,7 @@ func main() {
 
 	fmt.Println("Starting loadbalancer...")
 	fmt.Printf("Listening to port %v \n", serverPort)
+	fmt.Printf("Loadbalancing stragey: %s \n", balancingStrategy)
 
 	//open proxy server that forwards request to one of active nodes
 	server := &http.Server{
@@ -61,8 +69,39 @@ func warmUpConnections(nodes []string) {
 }
 
 func handler(writer http.ResponseWriter, req *http.Request) {
-	nextNode := new(RoundRobinStrategy).Instance().Next()
+	nextNode := getBackendNodeURL(balancingStrategy, req)
 	fmt.Println("Forwarding request to: " + nextNode)
 
 	proxyConnections[nextNode].ServeHTTP(writer, req)
+}
+
+func getBackendNodeURL(balancingStrategy string, req *http.Request) string {
+	var nextNodeURL string
+
+	if balancingStrategy == roundRobinBalancingStrategy {
+		nextNodeURL = new(RoundRobinStrategy).Instance().Next()
+	} else if balancingStrategy == stickySessionBalancingStrategy {
+		sessionIDCookie, err := readSessionCookie(req)
+		if err != nil {
+			//cannot read cookie, fallback to roundRobin
+			nextNodeURL = getBackendNodeURL(roundRobinBalancingStrategy, req)
+		}
+
+		nextNodeURL = new(StickySessionStrategy).Instance().Next(sessionIDCookie)
+	} else {
+		panic("Unknown load balancing strategy" + balancingStrategy)
+	}
+
+	return nextNodeURL
+
+}
+
+func readSessionCookie(req *http.Request) (string, error) {
+	sessionIDCookie, err := req.Cookie(sessionIDCookieName)
+	if err != nil {
+		return "", errors.New("")
+	}
+
+	fmt.Println("Sticky sessionId: ", sessionIDCookie.Value)
+	return sessionIDCookie.Value, nil
 }

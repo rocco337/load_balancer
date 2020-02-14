@@ -37,5 +37,9 @@ func (roundRobin *RoundRobinStrategy) Next() string {
 		roundRobin.nodesList = roundRobin.nodesList.Next()
 	}()
 
+	if roundRobin.nodesList.Len() == 0 {
+		panic("Cannot continue because there are no registered backends to route request!")
+	}
+
 	return roundRobin.nodesList.Value.(string)
 }
