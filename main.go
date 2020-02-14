@@ -27,11 +27,12 @@ var proxyConnections map[string]*httputil.ReverseProxy
 //auto discovery
 //configuration - port, autodiscovery
 //server health - remove from list if unhealthy
+//create registering of strategies instead of if/else
 func main() {
 	proxyConnections = make(map[string]*httputil.ReverseProxy, 0)
 
 	flag.Parse()
-
+	balancingStrategy = stickySessionBalancingStrategy
 	nodes := []string{"localhost:8082", "localhost:8081"}
 	new(RoundRobinStrategy).Instance().Init(nodes)
 	warmUpConnections(nodes)
@@ -82,9 +83,9 @@ func getBackendNodeURL(balancingStrategy string, req *http.Request) string {
 		nextNodeURL = new(RoundRobinStrategy).Instance().Next()
 	} else if balancingStrategy == stickySessionBalancingStrategy {
 		sessionIDCookie, err := readSessionCookie(req)
-		if err != nil {
+		if err != nil || len(sessionIDCookie) == 0 {
 			//cannot read cookie, fallback to roundRobin
-			nextNodeURL = getBackendNodeURL(roundRobinBalancingStrategy, req)
+			return getBackendNodeURL(roundRobinBalancingStrategy, req)
 		}
 
 		nextNodeURL = new(StickySessionStrategy).Instance().Next(sessionIDCookie)
