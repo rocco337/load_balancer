@@ -27,12 +27,11 @@ var proxyConnections map[string]*httputil.ReverseProxy
 //auto discovery
 //configuration - port, autodiscovery
 //server health - remove from list if unhealthy
-//create registering of strategies instead of if/else
 func main() {
 	proxyConnections = make(map[string]*httputil.ReverseProxy, 0)
 
 	flag.Parse()
-	balancingStrategy = stickySessionBalancingStrategy
+	//balancingStrategy = stickySessionBalancingStrategy
 	nodes := []string{"localhost:8082", "localhost:8081"}
 	new(RoundRobinStrategy).Instance().Init(nodes)
 	warmUpConnections(nodes)
@@ -40,6 +39,7 @@ func main() {
 	fmt.Println("Starting loadbalancer...")
 	fmt.Printf("Listening to port %v \n", serverPort)
 	fmt.Printf("Loadbalancing stragey: %s \n", balancingStrategy)
+	fmt.Println("-")
 
 	//open proxy server that forwards request to one of active nodes
 	server := &http.Server{
@@ -85,10 +85,11 @@ func getBackendNodeURL(balancingStrategy string, req *http.Request) string {
 		sessionIDCookie, err := readSessionCookie(req)
 		if err != nil || len(sessionIDCookie) == 0 {
 			//cannot read cookie, fallback to roundRobin
-			return getBackendNodeURL(roundRobinBalancingStrategy, req)
+			nextNodeURL = getBackendNodeURL(roundRobinBalancingStrategy, req)
+		} else {
+			nextNodeURL = new(StickySessionStrategy).Instance().Next(sessionIDCookie)
 		}
 
-		nextNodeURL = new(StickySessionStrategy).Instance().Next(sessionIDCookie)
 	} else {
 		panic("Unknown load balancing strategy" + balancingStrategy)
 	}
